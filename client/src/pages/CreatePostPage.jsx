@@ -1,28 +1,27 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import confetti from 'canvas-confetti';
-import { useAuth } from '../context/AuthContext';
-import { useAudioPlayer } from '../context/AudioPlayerContext';
-import { 
-  ArrowLeft, 
-  Search, 
-  Star, 
-  Play, 
-  Pause, 
-  Quote, 
-  Sparkles, 
-  Flame, 
-  User, 
-  RefreshCw, 
-  UserCheck, 
-  Tag, 
-  LogIn, 
+import {
+  ArrowLeft,
+  Flame,
+  Headphones,
   Lock,
+  LogIn,
   Music,
-  Headphones
+  Pause,
+  Play,
+  Quote,
+  RefreshCw,
+  Search,
+  Sparkles,
+  Star,
+  Tag,
+  UserCheck
 } from 'lucide-react';
-import { createFirestorePost } from '../services/firestoreService';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAudioPlayer } from '../context/AudioPlayerContext';
+import { useAuth } from '../context/AuthContext';
 import { searchMusicCached } from '../services/cacheService';
+import { createFirestorePost } from '../services/firestoreService';
 
 const SUGGESTED_VIBE_TAGS = [
   '#MidnightDrive', '#HeavyRotation', '#HiddenGem', '#Nostalgia',
@@ -50,8 +49,8 @@ export const CreatePostPage = () => {
   const [headline, setHeadline] = useState('');
   const [review, setReview] = useState('');
   const [favoriteLyric, setFavoriteLyric] = useState('');
-  const [selectedMood, setSelectedMood] = useState('Euphoric');
-  const [vibeTagsInput, setVibeTagsInput] = useState('#HeavyRotation #MidnightDrive');
+  const [selectedMood, setSelectedMood] = useState('');
+  const [vibeTagsInput, setVibeTagsInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -63,6 +62,15 @@ export const CreatePostPage = () => {
       .map(t => t.startsWith('#') ? t : `#${t}`);
   };
 
+  const resetSelectedTrack = () => {
+    setSelectedTrack(null);
+    setRating(5);
+    setHeadline('');
+    setReview('');
+    setFavoriteLyric('');
+    setVibeTagsInput('');
+    setSelectedMood('');
+  }
   const handleSearch = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (e && e.stopPropagation) e.stopPropagation();
@@ -110,14 +118,31 @@ export const CreatePostPage = () => {
       setAuthModalOpen(true);
       return;
     }
+
     if (!selectedTrack) {
       setError('Please search and select a track to review');
       return;
     }
+
+    if (!selectedMood) {
+      setError('Please select a mood for your review');
+      return;
+    }
+
+    if (!headline.trim()) {
+      setError('Please add a headline for your review');
+      return;
+    }
+
     if (!review.trim()) {
       setError('Please write a brief review or thoughts on this track');
       return;
     }
+
+    if (!vibeTagsInput.trim()) {
+      setError('Please add at least one vibe tag (e.g. #MidnightDrive)');
+      return;
+    } 
 
     const parsedTags = parseHashtags(vibeTagsInput);
 
@@ -446,7 +471,7 @@ export const CreatePostPage = () => {
                   {/* Change Song Button */}
                   <button
                     type="button"
-                    onClick={() => setSelectedTrack(null)}
+                    onClick={() => resetSelectedTrack()}
                     className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white text-xs font-semibold transition-colors shrink-0 border border-white/10"
                   >
                     Change Song
@@ -539,13 +564,15 @@ export const CreatePostPage = () => {
             {/* Mood Dropdown */}
             <div className="p-3.5 rounded-xl bg-dark-900/90 border border-white/10 space-y-1.5">
               <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider">
-                Listening Mood
+                Listening Mood *
               </label>
               <select
                 value={selectedMood}
+                required
                 onChange={(e) => setSelectedMood(e.target.value)}
                 className="w-full bg-dark-850 border border-white/10 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-brand-blue"
               >
+                <option key="empty" value="" disabled hidden>Select a mood</option>
                 {MOODS.map((m) => (
                   <option key={m} value={m} className="bg-dark-900 text-white">
                     {m}
@@ -558,12 +585,13 @@ export const CreatePostPage = () => {
           {/* Headline */}
           <div>
             <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1">
-              Headline
+              Headline *
             </label>
             <input
               type="text"
               placeholder="e.g. The best guitar solo of the decade"
               value={headline}
+              required
               onChange={(e) => setHeadline(e.target.value)}
               className="w-full bg-dark-900 border border-white/10 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-blue"
             />
@@ -606,7 +634,7 @@ export const CreatePostPage = () => {
             <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <Tag className="w-3.5 h-3.5 text-brand-pink" />
-                <span>Vibe Tags (Editable Hashtags)</span>
+                <span>Vibe Tags (Editable Hashtags) *</span>
               </span>
               <span className="text-[10px] text-slate-400 font-normal">Space-separated</span>
             </label>
@@ -618,6 +646,7 @@ export const CreatePostPage = () => {
                 type="text"
                 placeholder="e.g. #MidnightDrive #Synthwave #IndieGems"
                 value={vibeTagsInput}
+                required
                 onChange={(e) => setVibeTagsInput(e.target.value)}
                 className="w-full bg-dark-900 border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-blue transition-all"
               />
