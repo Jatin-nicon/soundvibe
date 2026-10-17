@@ -195,15 +195,23 @@ export const getFirestoreFollowLists = async (uidOrUsername) => {
     const followerIds = Array.isArray(targetUser.followers) ? targetUser.followers : [];
     const followingIds = Array.isArray(targetUser.following) ? targetUser.following : [];
 
-    // Fetch all users in one batch to resolve IDs/handles
-    const allUsersSnap = await getDocs(collection(db, USERS_COL));
+    // Fetch ONLY the specific followers/following profiles instead of entire user collection
+    const uniqueIds = Array.from(new Set([...followerIds, ...followingIds])).filter(Boolean);
     const allUsersMap = new Map();
-    allUsersSnap.forEach(d => {
-      const u = { id: d.id, ...d.data() };
-      allUsersMap.set(d.id, u);
-      if (u.uid) allUsersMap.set(u.uid, u);
-      if (u.username) allUsersMap.set(u.username.toLowerCase(), u);
-    });
+
+    if (uniqueIds.length > 0) {
+      const userSnaps = await Promise.allSettled(
+        uniqueIds.map(uid => getDoc(doc(db, USERS_COL, uid)))
+      );
+      userSnaps.forEach(res => {
+        if (res.status === 'fulfilled' && res.value && res.value.exists()) {
+          const u = { id: res.value.id, ...res.value.data() };
+          allUsersMap.set(res.value.id, u);
+          if (u.uid) allUsersMap.set(u.uid, u);
+          if (u.username) allUsersMap.set(u.username.toLowerCase(), u);
+        }
+      });
+    }
 
     const resolveProfiles = (idList) => {
       return idList.map(id => {
@@ -310,10 +318,20 @@ export const getFirestorePosts = async ({
 
     let list;
     const now = Date.now();
-    if (firestoreRawDocsCache.data && (now - firestoreRawDocsCache.timestamp < firestoreRawDocsCache.ttlMs)) {
+    // Targeted query when looking up a specific user's posts
+    if (userId && !authorUsername) {
+      const userPostsSnap = await getDocs(
+        query(collection(db, POSTS_COL), where('userId', '==', userId))
+      );
+      list = userPostsSnap.docs.map(d => ({
+        ...d.data(),
+        id: d.id,
+        _firestoreDocId: d.id
+      }));
+    } else if (firestoreRawDocsCache.data && (now - firestoreRawDocsCache.timestamp < firestoreRawDocsCache.ttlMs)) {
       list = [...firestoreRawDocsCache.data];
     } else {
-      let q = collection(db, POSTS_COL);
+      let q = query(collection(db, POSTS_COL), limit(150));
       const snap = await getDocs(q);
       list = snap.docs.map(d => ({
         ...d.data(),
@@ -472,13 +490,6 @@ export const createFirestorePost = async (postData) => {
     invalidateFirestoreRawCache();
     cacheService.invalidateFeed();
 
-    // Also notify backend API silently
-    fetch('/api/posts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': postData.userId },
-      body: JSON.stringify(payload)
-    }).catch(() => {});
-
     return { ...snap.data(), id: snap.id, _firestoreDocId: snap.id };
   } catch (err) {
     console.error('Error creating Firestore post:', err);
@@ -573,19 +584,25 @@ export const reactToFirestorePost = async (postId, reactionKey, userId) => {
     const currentReactions = Array.isArray(reactions[reactionKey]) ? reactions[reactionKey] : [];
 
     const hasReacted = currentReactions.includes(userId);
-    let updatedList;
-    if (hasReacted) {
-      updatedList = currentReactions.filter(id => id !== userId);
-    } else {
-      updatedList = [...currentReactions, userId];
-    }
 
-    reactions[reactionKey] = updatedList;
-    await setDoc(postRef, { reactions }, { merge: true });
+    // Atomic update using arrayRemove or arrayUnion on specific field path
+    await updateDoc(postRef, {
+      [`reactions.${reactionKey}`]: hasReacted ? arrayRemove(userId) : arrayUnion(userId),
+      updatedAt: serverTimestamp()
+    });
+
     invalidateFirestoreRawCache();
     cacheService.invalidateFeed();
 
-    return reactions;
+    // Return the updated reactions map for instant UI state update
+    const updatedReactions = {
+      ...reactions,
+      [reactionKey]: hasReacted
+        ? currentReactions.filter(id => id !== userId)
+        : [...currentReactions, userId]
+    };
+
+    return updatedReactions;
   } catch (err) {
     console.error('Error reacting to Firestore post:', err);
     throw err;
@@ -632,23 +649,11 @@ export const addCommentToFirestorePost = async (postId, commentData) => {
         }
       }
 
-      await setDoc(postRef, {
-        comments: arrayUnion(newComment)
-      }, { merge: true });
+      await updateDoc(postRef, {
+        comments: arrayUnion(newComment),
+        updatedAt: serverTimestamp()
+      });
     }
-
-    // Sync to Express backend API
-    fetch(`/api/posts/${postId}/comments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': userId },
-      body: JSON.stringify({
-        text: newComment.text,
-        username,
-        authorName: userName,
-        authorAvatar: userAvatar,
-        userId
-      })
-    }).catch(() => {});
 
     cacheService.invalidateFeed();
     return newComment;
@@ -659,7 +664,7 @@ export const addCommentToFirestorePost = async (postId, commentData) => {
 };
 
 /**
- * Update Comment in a Post in Firestore and Sync with Backend
+ * Update Comment in a Post in Firestore
  */
 export const updateCommentInFirestorePost = async (postId, commentId, newText, userIdentifier) => {
   try {
@@ -692,21 +697,12 @@ export const updateCommentInFirestorePost = async (postId, commentId, newText, u
           return c;
         });
 
-        await setDoc(postRef, {
-          comments: updatedComments
-        }, { merge: true });
+        await updateDoc(postRef, {
+          comments: updatedComments,
+          updatedAt: serverTimestamp()
+        });
       }
     }
-
-    // Sync to Express backend API
-    fetch(`/api/posts/${postId}/comments/${commentId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': userIdentifier || '' },
-      body: JSON.stringify({
-        text: newText.trim(),
-        userId: userIdentifier
-      })
-    }).catch(() => {});
 
     cacheService.invalidateFeed();
     return true;
@@ -717,7 +713,7 @@ export const updateCommentInFirestorePost = async (postId, commentId, newText, u
 };
 
 /**
- * Delete Comment from a Post in Firestore and Sync with Backend
+ * Delete Comment from a Post in Firestore
  */
 export const deleteCommentFromFirestorePost = async (postId, commentId, userIdentifier) => {
   try {
@@ -741,20 +737,12 @@ export const deleteCommentFromFirestorePost = async (postId, commentId, userIden
         const existingComments = Array.isArray(data.comments) ? data.comments : [];
         const updatedComments = existingComments.filter(c => c.id !== commentId);
 
-        await setDoc(postRef, {
-          comments: updatedComments
-        }, { merge: true });
+        await updateDoc(postRef, {
+          comments: updatedComments,
+          updatedAt: serverTimestamp()
+        });
       }
     }
-
-    // Sync to Express backend API
-    fetch(`/api/posts/${postId}/comments/${commentId}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json', 'x-user-id': userIdentifier || '' },
-      body: JSON.stringify({
-        userId: userIdentifier
-      })
-    }).catch(() => {});
 
     cacheService.invalidateFeed();
     return true;
@@ -798,9 +786,9 @@ export const searchFirestoreUnified = async ({ query, type = 'all', limit = 25 }
     let tags = [];
 
     if (db) {
-      // Search Users in Firestore
+      // Search Users in Firestore (bounded query)
       if (type === 'all' || type === 'users') {
-        const usersSnap = await getDocs(collection(db, USERS_COL));
+        const usersSnap = await getDocs(query(collection(db, USERS_COL), limit(50)));
         users = usersSnap.docs
           .map(d => ({ id: d.id, ...d.data() }))
           .filter(u => 
@@ -812,9 +800,9 @@ export const searchFirestoreUnified = async ({ query, type = 'all', limit = 25 }
           .slice(0, limit);
       }
 
-      // Search Posts in Firestore
+      // Search Posts in Firestore (bounded query)
       if (type === 'all' || type === 'posts' || type === 'tags') {
-        const postsSnap = await getDocs(collection(db, POSTS_COL));
+        const postsSnap = await getDocs(query(collection(db, POSTS_COL), limit(75)));
         const allPosts = postsSnap.docs.map(d => ({
           ...d.data(),
           id: d.id,
