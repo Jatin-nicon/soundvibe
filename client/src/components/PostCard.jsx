@@ -87,7 +87,7 @@ export const PostCard = ({
     }
   }, [post, defaultShowComments]);
 
-  const isThisTrackPlaying = currentTrack?.id === post.track.id && isPlaying;
+  const isThisTrackPlaying = currentTrack?.id === post?.track?.id && isPlaying;
   const author = post.author || { id: post.userId, name: 'Music Explorer', avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${post.userId}` };
   const authorIdentifier = author.id || author.username;
   const isFollowingAuthor = (user?.following || []).some(
@@ -290,9 +290,14 @@ export const PostCard = ({
           className="flex items-center gap-2.5 sm:gap-3 cursor-pointer group min-w-0"
         >
           <img
-            src={author.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100'}
+            src={author.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${author.username || author.id || 'listener'}`}
             alt={author.name}
-            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover ring-2 ring-white/10 group-hover:ring-brand-blue transition-all shrink-0"
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              e.currentTarget.onerror = null;
+              e.currentTarget.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${author.username || author.id || 'listener'}`;
+            }}
+            className="w-9 h-9 sm:w-10 sm:h-10 rounded-full object-cover ring-2 ring-white/10 group-hover:ring-brand-blue transition-all shrink-0 bg-dark-800"
           />
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
@@ -548,8 +553,13 @@ export const PostCard = ({
           {user ? (
             <form onSubmit={handleAddComment} className="flex items-center gap-2.5">
               <img
-                src={user.avatar || user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.id || user.uid}`}
+                src={user.avatar || user.photoURL || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username || user.id || 'listener'}`}
                 alt={user.name}
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username || user.id || 'listener'}`;
+                }}
                 className="w-8 h-8 rounded-full object-cover ring-2 ring-brand-blue/30 shrink-0 bg-dark-800"
               />
               <div className="relative flex-1">
@@ -612,6 +622,11 @@ export const PostCard = ({
                       <img
                         src={commentAvatar}
                         alt={commentName}
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${commentHandle || 'listener'}`;
+                        }}
                         className="w-8 h-8 rounded-full object-cover ring-1 ring-white/10 group-hover:ring-brand-blue transition-all bg-dark-800"
                       />
                     </Link>

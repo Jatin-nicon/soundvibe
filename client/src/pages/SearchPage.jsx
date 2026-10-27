@@ -41,7 +41,7 @@ export const SearchPage = () => {
   const [inputQuery, setInputQuery] = useState(rawQuery);
   const [activeTab, setActiveTab] = useState(rawType);
   const [loading, setLoading] = useState(false);
-  const [lastSearchedQuery, setLastSearchedQuery] = useState('');
+  const lastExecutedRef = React.useRef({ query: '', timestamp: 0 });
   const [results, setResults] = useState({
     tracks: [],
     users: [],
@@ -49,30 +49,18 @@ export const SearchPage = () => {
     tags: []
   });
 
-  // Always fetch all categories for the query so counts on all tabs remain accurate and synchronized
-  useEffect(() => {
-    setInputQuery(rawQuery);
-    setActiveTab(rawType);
-    const cleanQuery = rawQuery.trim();
+  const executeFullSearch = async (queryText, bypassCache = false) => {
+    const clean = (queryText || '').trim();
+    if (!clean) return;
 
-    if (cleanQuery) {
-      if (cleanQuery !== lastSearchedQuery) {
-        setLastSearchedQuery(cleanQuery);
-        executeFullSearch(cleanQuery);
-      }
-    } else {
-      setLastSearchedQuery('');
-      setResults({ tracks: [], users: [], posts: [], tags: [] });
-    }
-  }, [rawQuery, rawType]);
-
-  const executeFullSearch = async (queryText) => {
+    lastExecutedRef.current = { query: clean, timestamp: Date.now() };
     setLoading(true);
     try {
       const data = await searchFirestoreUnified({
-        query: queryText,
-        type: 'all', // ALWAYS fetch all categories to preserve accurate tab count badges
-        limit: 35
+        query: clean,
+        type: 'all', // ALWAYS fetch all categories so counts on all tabs remain accurate and synchronized
+        limit: 35,
+        bypassCache
       });
       setResults({
         tracks: data.tracks || [],
@@ -87,11 +75,32 @@ export const SearchPage = () => {
     }
   };
 
+  // Synchronize when URL parameters change (e.g. from Navbar search or tab clicking)
+  useEffect(() => {
+    setInputQuery(rawQuery);
+    setActiveTab(rawType);
+    const cleanQuery = rawQuery.trim();
+
+    if (cleanQuery) {
+      // Prevent duplicate search if just executed by submit handler within 1.5 seconds
+      const isRecent = lastExecutedRef.current.query === cleanQuery && (Date.now() - lastExecutedRef.current.timestamp < 1500);
+      if (!isRecent) {
+        executeFullSearch(cleanQuery, false);
+      }
+    } else {
+      lastExecutedRef.current = { query: '', timestamp: 0 };
+      setResults({ tracks: [], users: [], posts: [], tags: [] });
+    }
+  }, [rawQuery, rawType]);
+
   const handleSearchSubmit = (e) => {
     e.preventDefault();
-    if (inputQuery.trim()) {
-      setSearchParams({ q: inputQuery.trim(), type: activeTab });
-    }
+    const clean = inputQuery.trim();
+    if (!clean) return;
+
+    // Immediately trigger fresh live search bypassing cache on Enter
+    executeFullSearch(clean, true);
+    setSearchParams({ q: clean, type: activeTab });
   };
 
   const handleTabChange = (tabId) => {
@@ -110,7 +119,7 @@ export const SearchPage = () => {
     try {
       await toggleFollowUser(targetId);
       if (rawQuery.trim()) {
-        executeFullSearch(rawQuery.trim());
+        executeFullSearch(rawQuery.trim(), true);
       }
     } catch (err) {
       console.error(err);
@@ -174,11 +183,17 @@ export const SearchPage = () => {
         </div>
       </div>
 
-      {/* Filter Tabs Strip */}
+      {/* Filter Tabs Strip with Category Count Badges */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2 custom-scrollbar">
         {FILTER_TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
+          const count = 
+            tab.id === 'all' ? totalResultsCount :
+            tab.id === 'songs' ? (results.tracks?.length || 0) :
+            tab.id === 'users' ? (results.users?.length || 0) :
+            tab.id === 'posts' ? (results.posts?.length || 0) :
+            tab.id === 'tags' ? (results.tags?.length || 0) : 0;
 
           return (
             <button
@@ -192,6 +207,13 @@ export const SearchPage = () => {
             >
               <Icon className="w-3.5 h-3.5" />
               <span>{tab.label}</span>
+              {rawQuery.trim() && (
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-semibold ${
+                  isActive ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-300'
+                }`}>
+                  {count}
+                </span>
+              )}
             </button>
           );
         })}
@@ -302,10 +324,15 @@ export const SearchPage = () => {
                     >
                       <div className="flex items-start gap-3 min-w-0">
                         <img
-                          src={curator.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${curator.username || curator.id}`}
-                          alt={curator.name}
-                          className="w-12 h-12 rounded-2xl object-cover ring-1 ring-white/10 group-hover:ring-brand-blue transition-all shrink-0 bg-dark-800"
-                        />
+                    src={curator.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${curator.username || curator.id}`}
+                    alt={curator.name}
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${curator.username || curator.id}`;
+                    }}
+                    className="w-12 h-12 rounded-2xl object-cover ring-1 ring-white/10 group-hover:ring-brand-blue transition-all shrink-0 bg-dark-800"
+                  />
                         <div className="min-w-0">
                           <h4 className="text-sm font-bold text-white group-hover:text-brand-blue transition-colors truncate">
                             {curator.name}

@@ -11,6 +11,7 @@ import {
   query, 
   where, 
   orderBy, 
+  limit as firestoreLimit,
   serverTimestamp, 
   arrayUnion, 
   arrayRemove, 
@@ -59,6 +60,18 @@ export const getFirestoreUser = async (uidOrUsername) => {
 };
 
 /**
+ * Check if a username is available (or belongs to current user)
+ */
+export const isUsernameAvailable = async (username, currentUid) => {
+  if (!username) return false;
+  const clean = username.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
+  if (!clean) return false;
+  const existingUser = await getFirestoreUser(clean);
+  if (!existingUser) return true;
+  return existingUser.id === currentUid || existingUser.uid === currentUid;
+};
+
+/**
  * Save or update user profile in Firestore
  */
 export const saveFirestoreUser = async (uid, userData) => {
@@ -90,7 +103,7 @@ export const saveFirestoreUser = async (uid, userData) => {
       try {
         const postsQuery = query(collection(db, POSTS_COL), where('userId', '==', uid));
         const postsSnap = await getDocs(postsQuery);
-        postsSnap.forEach(async (pDoc) => {
+        const updatePromises = postsSnap.docs.map(async (pDoc) => {
           const pData = pDoc.data();
           const updatedAuthor = {
             ...(pData.author || {}),
@@ -99,10 +112,13 @@ export const saveFirestoreUser = async (uid, userData) => {
             name: userData.name || pData.author?.name,
             avatar: userData.avatar || pData.author?.avatar
           };
-          await updateDoc(doc(db, POSTS_COL, pDoc.id), {
+          return updateDoc(doc(db, POSTS_COL, pDoc.id), {
             author: updatedAuthor
           });
         });
+        await Promise.all(updatePromises);
+        invalidateFirestoreRawCache();
+        cacheService.invalidateFeed();
       } catch (postSyncErr) {
         console.warn('Silent post author sync notice:', postSyncErr);
       }
@@ -281,7 +297,7 @@ export const getFirestorePosts = async ({
   const limitNum = limit === null || limit === undefined ? null : Math.max(1, parseInt(limit) || 10);
 
   // Check client feed cache if clustered format requested
-  const cacheKeyUser = userId || authorUsername || currentUserId || 'all';
+  const cacheKeyUser = filter === 'following' ? (currentUserId || 'guest') : (userId || authorUsername || 'all');
   if (returnCluster && limitNum) {
     const cachedCluster = cacheService.getFeedCluster(filter, genre, cacheKeyUser, pageNum);
     if (cachedCluster) {
@@ -319,9 +335,18 @@ export const getFirestorePosts = async ({
     let list;
     const now = Date.now();
     // Targeted query when looking up a specific user's posts
-    if (userId && !authorUsername) {
+    if (userId) {
       const userPostsSnap = await getDocs(
         query(collection(db, POSTS_COL), where('userId', '==', userId))
+      );
+      list = userPostsSnap.docs.map(d => ({
+        ...d.data(),
+        id: d.id,
+        _firestoreDocId: d.id
+      }));
+    } else if (authorUsername) {
+      const userPostsSnap = await getDocs(
+        query(collection(db, POSTS_COL), where('author.username', '==', authorUsername))
       );
       list = userPostsSnap.docs.map(d => ({
         ...d.data(),
@@ -331,8 +356,13 @@ export const getFirestorePosts = async ({
     } else if (firestoreRawDocsCache.data && (now - firestoreRawDocsCache.timestamp < firestoreRawDocsCache.ttlMs)) {
       list = [...firestoreRawDocsCache.data];
     } else {
-      let q = query(collection(db, POSTS_COL), limit(150));
-      const snap = await getDocs(q);
+      let snap;
+      try {
+        const q = query(collection(db, POSTS_COL), orderBy('createdAt', 'desc'), firestoreLimit(150));
+        snap = await getDocs(q);
+      } catch (orderErr) {
+        snap = await getDocs(query(collection(db, POSTS_COL), firestoreLimit(150)));
+      }
       list = snap.docs.map(d => ({
         ...d.data(),
         id: d.id,
@@ -368,9 +398,19 @@ export const getFirestorePosts = async ({
       if (!currentUserId) {
         list = [];
       } else {
-        const currentUserSnap = await getDoc(doc(db, USERS_COL, currentUserId));
-        const following = currentUserSnap.data()?.following || [];
-        list = list.filter(p => following.includes(p.userId) || following.includes(p.author?.username));
+        let following = [];
+        const userObj = await getFirestoreUser(currentUserId);
+        if (userObj && Array.isArray(userObj.following)) {
+          following = userObj.following;
+        } else {
+          const currentUserSnap = await getDoc(doc(db, USERS_COL, currentUserId));
+          following = currentUserSnap.data()?.following || [];
+        }
+        list = list.filter(p => {
+          const pUid = p.userId || p.author?.id || p.author?.uid;
+          const pUsername = p.author?.username;
+          return following.includes(pUid) || (pUsername && following.includes(pUsername));
+        });
       }
     }
 
@@ -386,9 +426,16 @@ export const getFirestorePosts = async ({
     } else {
       // Default: Newest first
       list.sort((a, b) => {
-        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime();
-        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime();
-        return timeB - timeA;
+        const getTime = (val) => {
+          if (!val) return Date.now();
+          if (typeof val.toMillis === 'function') return val.toMillis();
+          if (typeof val.toDate === 'function') return val.toDate().getTime();
+          if (typeof val.seconds === 'number') return val.seconds * 1000;
+          if (typeof val === 'number') return val;
+          const parsed = new Date(val).getTime();
+          return isNaN(parsed) ? Date.now() : parsed;
+        };
+        return getTime(b.createdAt) - getTime(a.createdAt);
       });
     }
 
@@ -490,7 +537,13 @@ export const createFirestorePost = async (postData) => {
     invalidateFirestoreRawCache();
     cacheService.invalidateFeed();
 
-    return { ...snap.data(), id: snap.id, _firestoreDocId: snap.id };
+    const data = snap.exists() ? snap.data() : payload;
+    return {
+      ...data,
+      id: snap.id,
+      _firestoreDocId: snap.id,
+      createdAt: data?.createdAt || new Date().toISOString()
+    };
   } catch (err) {
     console.error('Error creating Firestore post:', err);
     throw err;
@@ -753,21 +806,25 @@ export const deleteCommentFromFirestorePost = async (postId, commentId, userIden
 };
 
 /**
- * Unified Discovery Search (Songs, Users, Posts, Tags) with Client-Side Caching
+ * Unified Discovery Search (Songs, Users, Posts, Tags) with Client-Side Caching & Live Search
  */
-export const searchFirestoreUnified = async ({ query, type = 'all', limit = 25 } = {}) => {
-  const qStr = (query || '').trim();
+export const searchFirestoreUnified = async ({ query: searchQuery, type = 'all', limit = 25, bypassCache = false } = {}) => {
+  const qStr = (searchQuery || '').trim();
   if (!qStr) {
     return { query: '', type, tracks: [], users: [], posts: [], tags: [] };
   }
 
-  // 1. Check client unified search cache first
-  const cachedUnified = cacheService.getUnifiedSearch(qStr, type);
-  if (cachedUnified) {
-    return cachedUnified;
+  // 1. Check client unified search cache first (unless explicit bypass requested e.g. on Enter)
+  if (!bypassCache) {
+    const cachedUnified = cacheService.getUnifiedSearch(qStr, type);
+    if (cachedUnified) {
+      return cachedUnified;
+    }
   }
 
   const qLower = qStr.toLowerCase();
+  const cleanHandle = qLower.replace(/^[@#]/, '').trim();
+  const words = cleanHandle.split(/\s+/).filter(Boolean);
 
   try {
     // 1. Search tracks via cached music search
@@ -786,44 +843,114 @@ export const searchFirestoreUnified = async ({ query, type = 'all', limit = 25 }
     let tags = [];
 
     if (db) {
-      // Search Users in Firestore (bounded query)
-      if (type === 'all' || type === 'users') {
-        const usersSnap = await getDocs(query(collection(db, USERS_COL), limit(50)));
-        users = usersSnap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .filter(u => 
-            (u.name && u.name.toLowerCase().includes(qLower)) ||
-            (u.username && u.username.toLowerCase().includes(qLower)) ||
-            (u.bio && u.bio.toLowerCase().includes(qLower)) ||
-            (u.favoriteGenres || []).some(g => g.toLowerCase().includes(qLower))
-          )
-          .slice(0, limit);
-      }
+      let allPosts = [];
 
-      // Search Posts in Firestore (bounded query)
-      if (type === 'all' || type === 'posts' || type === 'tags') {
-        const postsSnap = await getDocs(query(collection(db, POSTS_COL), limit(75)));
-        const allPosts = postsSnap.docs.map(d => ({
+      // Query posts first if needed for posts, tags, supplemental user search, or track discovery
+      if (type === 'all' || type === 'posts' || type === 'tags' || type === 'users' || type === 'songs') {
+        const postsSnap = await getDocs(query(collection(db, POSTS_COL), firestoreLimit(100)));
+        allPosts = postsSnap.docs.map(d => ({
           ...d.data(),
           id: d.id,
           comments: Array.isArray(d.data().comments) ? d.data().comments : []
         }));
+      }
 
-        posts = allPosts.filter(p => 
-          (p.headline && p.headline.toLowerCase().includes(qLower)) ||
-          (p.review && p.review.toLowerCase().includes(qLower)) ||
-          (p.favoriteLyric && p.favoriteLyric.toLowerCase().includes(qLower)) ||
-          (p.track?.title && p.track.title.toLowerCase().includes(qLower)) ||
-          (p.track?.artist && p.track.artist.toLowerCase().includes(qLower)) ||
-          (p.vibeTags || []).some(t => t.toLowerCase().includes(qLower))
-        ).slice(0, limit);
+      // Merge community posted tracks into tracks list for comprehensive results
+      if (type === 'all' || type === 'songs') {
+        const existingTrackKeys = new Set(tracks.map(t => `${(t.title || '').toLowerCase()}::${(t.artist || '').toLowerCase()}`));
+        allPosts.forEach(p => {
+          if (p.track && (p.track.title || p.track.artist)) {
+            const trackKey = `${(p.track.title || '').toLowerCase()}::${(p.track.artist || '').toLowerCase()}`;
+            const trackText = `${p.track.title || ''} ${p.track.artist || ''} ${p.track.album || ''}`.toLowerCase();
+            const matches = trackText.includes(cleanHandle) || (words.length > 1 && words.every(w => trackText.includes(w)));
+            if (matches && !existingTrackKeys.has(trackKey)) {
+              existingTrackKeys.add(trackKey);
+              tracks.unshift({
+                id: p.track.id || `post-track-${p.id}`,
+                title: p.track.title,
+                artist: p.track.artist,
+                album: p.track.album || 'SoundVibe Feature',
+                artwork: p.track.artwork,
+                previewUrl: p.track.previewUrl,
+                genre: p.track.genre || p.mood || 'Music',
+                durationMs: p.track.durationMs
+              });
+            }
+          }
+        });
+        if (tracks.length > limit) {
+          tracks = tracks.slice(0, limit);
+        }
+      }
+
+      // Search Users in Firestore
+      if (type === 'all' || type === 'users') {
+        const usersSnap = await getDocs(query(collection(db, USERS_COL), firestoreLimit(100)));
+        const primaryUsers = usersSnap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(u => {
+            const userSearchText = `${u.name || ''} ${u.username || ''} ${u.bio || ''} ${u.email || ''} ${(u.favoriteGenres || []).join(' ')}`.toLowerCase();
+            return userSearchText.includes(cleanHandle) || (words.length > 1 && words.every(w => userSearchText.includes(w)));
+          });
+
+        // Index seen usernames to avoid duplicates
+        const seenUsernames = new Set(primaryUsers.map(u => (u.username || u.id || '').toLowerCase()));
+        users = [...primaryUsers];
+
+        // Supplement from post authors who may have posted reviews
+        allPosts.forEach(p => {
+          const a = p.author;
+          if (a && a.username && !seenUsernames.has(a.username.toLowerCase())) {
+            const authorSearchText = `${a.name || ''} ${a.username || ''}`.toLowerCase();
+            const matches = authorSearchText.includes(cleanHandle) || (words.length > 1 && words.every(w => authorSearchText.includes(w)));
+            if (matches) {
+              seenUsernames.add(a.username.toLowerCase());
+              users.push({
+                id: a.id || p.userId || a.username,
+                uid: a.id || p.userId || a.username,
+                name: a.name || 'Music Explorer',
+                username: a.username,
+                avatar: a.avatar,
+                bio: 'Music enthusiast sharing sonic vibes on SoundVibe 🎧',
+                followers: [],
+                following: [],
+                badges: a.badges || ['Curator']
+              });
+            }
+          }
+        });
+
+        users = users.slice(0, limit);
+      }
+
+      // Search Posts in Firestore
+      if (type === 'all' || type === 'posts' || type === 'tags') {
+        posts = allPosts.filter(p => {
+          const postSearchable = [
+            p.headline,
+            p.review,
+            p.favoriteLyric,
+            p.track?.title,
+            p.track?.artist,
+            p.track?.album,
+            p.track?.genre,
+            p.author?.name,
+            p.author?.username,
+            p.mood,
+            ...(p.vibeTags || [])
+          ].filter(Boolean).join(' ').toLowerCase();
+
+          return postSearchable.includes(cleanHandle) ||
+                 (words.length > 1 && words.every(w => postSearchable.includes(w)));
+        }).slice(0, limit);
 
         // Aggregate matching tags
         const tagMap = {};
         allPosts.forEach(p => {
           (p.vibeTags || []).forEach(t => {
             const cleanTag = t.startsWith('#') ? t : `#${t}`;
-            if (cleanTag.toLowerCase().includes(qLower)) {
+            const strippedTag = cleanTag.toLowerCase().replace(/^#/, '');
+            if (strippedTag.includes(cleanHandle) || cleanTag.toLowerCase().includes(cleanHandle)) {
               tagMap[cleanTag] = (tagMap[cleanTag] || 0) + 1;
             }
           });

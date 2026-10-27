@@ -593,13 +593,14 @@ router.get('/search', async (req, res) => {
   }
 
   const qLower = query.toLowerCase();
+  const cleanHandle = qLower.replace(/^@/, '');
 
   // 1. Search Users
   let matchedUsers = [];
   if (type === 'all' || type === 'users') {
     matchedUsers = db.data.users.filter(u => 
-      (u.name && u.name.toLowerCase().includes(qLower)) ||
-      (u.username && u.username.toLowerCase().includes(qLower)) ||
+      (u.name && u.name.toLowerCase().includes(cleanHandle)) ||
+      (u.username && u.username.toLowerCase().includes(cleanHandle)) ||
       (u.bio && u.bio.toLowerCase().includes(qLower)) ||
       (u.favoriteGenres || []).some(g => g.toLowerCase().includes(qLower))
     ).map(u => {

@@ -259,8 +259,13 @@ export const CreatePostPage = () => {
           <div className="flex items-center justify-between p-3 rounded-2xl bg-dark-900/90 border border-white/10">
             <div className="flex items-center gap-3 min-w-0">
               <img
-                src={user.avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=user'}
+                src={user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username || user.id || 'user'}`}
                 alt={user.name}
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username || user.id || 'user'}`;
+                }}
                 className="w-10 h-10 rounded-xl object-cover ring-2 ring-brand-blue/40 shrink-0 bg-dark-800"
               />
               <div className="min-w-0">

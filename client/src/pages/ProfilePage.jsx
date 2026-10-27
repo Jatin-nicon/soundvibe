@@ -172,8 +172,13 @@ export const ProfilePage = () => {
           <div className="flex items-start sm:items-center gap-3.5 sm:gap-5 min-w-0">
             <div className="relative shrink-0">
               <img
-                src={user.avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=listener'}
+                src={user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username || user.id || 'listener'}`}
                 alt={user.name}
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username || user.id || 'listener'}`;
+                }}
                 className="w-16 h-16 sm:w-24 sm:h-24 rounded-2xl sm:rounded-3xl object-cover ring-4 ring-brand-blue/30 shadow-2xl bg-dark-850"
               />
               <div className="absolute -bottom-1 -right-1 sm:-bottom-2 sm:-right-2 p-1 sm:p-1.5 bg-dark-900 rounded-lg sm:rounded-xl border border-white/10 text-brand-blue">

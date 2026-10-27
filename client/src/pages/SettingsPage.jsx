@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { processImageFile } from '../utils/imageUpload';
+import { isUsernameAvailable } from '../services/firestoreService';
 import { 
   ArrowLeft, 
   User, 
@@ -101,6 +102,15 @@ export const SettingsPage = () => {
     setSuccess(false);
     try {
       const cleanUsername = username.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+      if (cleanUsername && cleanUsername !== user?.username) {
+        const available = await isUsernameAvailable(cleanUsername, user?.id || user?.uid);
+        if (!available) {
+          setError(`Username @${cleanUsername} is already taken by another curator. Please choose another.`);
+          setSaving(false);
+          return;
+        }
+      }
+
       await updateUserProfile({
         username: cleanUsername || user?.username || 'curator',
         name: name.trim(),
@@ -269,8 +279,13 @@ export const SettingsPage = () => {
             
             <div className="flex items-center gap-4 p-3 rounded-xl bg-dark-900/90 border border-white/10">
               <img
-                src={avatar || 'https://api.dicebear.com/7.x/bottts/svg?seed=user'}
+                src={avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${user?.username || user?.id || 'user'}`}
                 alt="Avatar Preview"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${user?.username || user?.id || 'user'}`;
+                }}
                 className="w-14 h-14 rounded-2xl object-cover ring-2 ring-brand-blue/30 shrink-0 bg-dark-800"
               />
               

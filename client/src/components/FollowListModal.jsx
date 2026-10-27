@@ -191,6 +191,11 @@ export const FollowListModal = ({
                     <img
                       src={item.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${item.username || item.id}`}
                       alt={item.name}
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${item.username || item.id}`;
+                      }}
                       className="w-10 h-10 rounded-full object-cover ring-1 ring-white/10 group-hover:ring-brand-blue transition-all shrink-0 bg-dark-800"
                     />
                     <div className="min-w-0">

@@ -168,10 +168,15 @@ export const Navbar = () => {
                         className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-white/5 cursor-pointer transition-colors group"
                       >
                         <img
-                          src={u.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${u.username || u.id}`}
-                          alt={u.name}
-                          className="w-7 h-7 rounded-full object-cover ring-1 ring-white/10 group-hover:ring-brand-blue bg-dark-800"
-                        />
+                      src={u.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${u.username || u.id}`}
+                      alt={u.name}
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${u.username || u.id}`;
+                      }}
+                      className="w-7 h-7 rounded-full object-cover ring-1 ring-white/10 group-hover:ring-brand-blue bg-dark-800"
+                    />
                         <div className="min-w-0 flex-1">
                           <p className="text-xs font-bold text-white group-hover:text-brand-blue truncate">{u.name}</p>
                           <p className="text-[10px] text-slate-400 truncate">@{u.username}</p>
@@ -304,6 +309,11 @@ export const Navbar = () => {
                   <img
                     src={user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username || user.id}`}
                     alt={user.name || 'User'}
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username || user.id}`;
+                    }}
                     className="w-7 h-7 sm:w-8 sm:h-8 rounded-full object-cover ring-2 ring-brand-blue/30 group-hover:ring-brand-blue transition-all bg-dark-800"
                   />
                   <div className="text-left hidden lg:block pr-1">
@@ -447,8 +457,13 @@ export const Navbar = () => {
             }`}
           >
             <img
-              src={user.avatar}
+              src={user.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username || user.id}`}
               alt="Profile"
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                e.currentTarget.onerror = null;
+                e.currentTarget.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${user.username || user.id}`;
+              }}
               className={`w-5 h-5 rounded-full object-cover ring-1 ${isProfileActive ? 'ring-brand-blue' : 'ring-white/20'}`}
             />
             <span className="text-[10px] font-semibold mt-0.5">Profile</span>

@@ -189,7 +189,7 @@ export const cacheService = {
   getUnifiedSearch: (query, type = 'all') => {
     const clean = (query || '').trim().toLowerCase();
     if (!clean) return null;
-    const key = `sv_search_unified_${type}_${clean}`;
+    const key = `sv_search_unified_v3_${type}_${clean}`;
     const memItem = MEMORY_CACHE.get(key);
     if (memItem && (!memItem.expiry || Date.now() <= memItem.expiry)) {
       return memItem.data;
@@ -200,7 +200,7 @@ export const cacheService = {
   setUnifiedSearch: (query, type, data, ttlMs = 15 * 60 * 1000) => {
     const clean = (query || '').trim().toLowerCase();
     if (!clean || !data) return;
-    const key = `sv_search_unified_${type}_${clean}`;
+    const key = `sv_search_unified_v3_${type}_${clean}`;
     MEMORY_CACHE.set(key, { data, expiry: Date.now() + ttlMs });
     safeStorage.set(key, data, ttlMs);
   }
