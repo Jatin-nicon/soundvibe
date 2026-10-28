@@ -372,7 +372,7 @@ export const createSupabasePost = async (postData) => {
   return formatPostRow(data);
 };
 
-export const updateSupabasePost = async (postId, updateData) => {
+export const updateSupabasePost = async (postId, updateData, currentUserId) => {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured');
 
   const payload = {
@@ -385,10 +385,16 @@ export const updateSupabasePost = async (postId, updateData) => {
     updated_at: new Date().toISOString()
   };
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('posts')
     .update(payload)
-    .eq('id', postId)
+    .eq('id', postId);
+
+  if (currentUserId) {
+    query = query.eq('user_id', currentUserId);
+  }
+
+  const { data, error } = await query
     .select(`
       *,
       profiles:user_id (id, username, name, avatar, badges),
@@ -402,13 +408,19 @@ export const updateSupabasePost = async (postId, updateData) => {
   return formatPostRow(data);
 };
 
-export const deleteSupabasePost = async (postId) => {
+export const deleteSupabasePost = async (postId, currentUserId) => {
   if (!isSupabaseConfigured) throw new Error('Supabase is not configured');
 
-  const { error } = await supabase
+  let query = supabase
     .from('posts')
     .delete()
     .eq('id', postId);
+
+  if (currentUserId) {
+    query = query.eq('user_id', currentUserId);
+  }
+
+  const { error } = await query;
 
   if (error) throw error;
   cacheService.invalidateFeed();

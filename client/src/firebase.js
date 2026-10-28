@@ -9,29 +9,6 @@ import {
   onAuthStateChanged,
   updateProfile
 } from 'firebase/auth';
-import { 
-  getFirestore, 
-  initializeFirestore, 
-  persistentLocalCache, 
-  persistentMultipleTabManager,
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc, 
-  collection, 
-  getDocs, 
-  addDoc, 
-  deleteDoc, 
-  query, 
-  where, 
-  orderBy, 
-  limit,
-  startAfter,
-  serverTimestamp, 
-  arrayUnion, 
-  arrayRemove,
-  increment
-} from 'firebase/firestore';
 
 // Read configuration strictly from Vite Environment Variables (.env)
 const firebaseConfig = {
@@ -44,55 +21,29 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-// Safe Firebase Initialization with Persistent Local Cache
+// Safe Firebase Initialization (Auth Only)
 let app;
 let auth;
-let db;
 let googleProvider;
 
 try {
   app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   auth = getAuth(app);
-  try {
-    db = initializeFirestore(app, {
-      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
-    });
-  } catch (cacheErr) {
-    db = getFirestore(app);
-  }
   googleProvider = new GoogleAuthProvider();
 } catch (err) {
-  console.warn('Firebase initialization notice:', err);
+  console.warn('Firebase Auth initialization notice:', err);
 }
 
 export {
   app,
   auth,
-  db,
   googleProvider,
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
-  updateProfile,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  collection,
-  getDocs,
-  addDoc,
-  deleteDoc,
-  query,
-  where,
-  orderBy,
-  limit,
-  startAfter,
-  serverTimestamp,
-  arrayUnion,
-  arrayRemove,
-  increment
+  updateProfile
 };
 
 export default app;
