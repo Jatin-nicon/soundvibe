@@ -18,6 +18,24 @@ import {
   increment 
 } from '../firebase';
 import { cacheService, searchMusicCached } from './cacheService';
+import { isSupabaseConfigured } from '../supabase';
+import { 
+  getSupabaseUser, 
+  saveSupabaseUser, 
+  isSupabaseUsernameAvailable,
+  getSupabasePosts, 
+  getSupabasePostById,
+  createSupabasePost, 
+  updateSupabasePost, 
+  deleteSupabasePost, 
+  reactToSupabasePost, 
+  addCommentToSupabasePost, 
+  updateSupabaseComment,
+  deleteSupabaseComment,
+  toggleFollowSupabase, 
+  getSupabaseFollowLists, 
+  searchSupabaseUnified 
+} from './supabaseService';
 
 const USERS_COL = 'users';
 const POSTS_COL = 'posts';
@@ -28,10 +46,13 @@ export const generateId = (prefix = 'item') => `${prefix}_${Date.now()}_${Math.r
 // ================= USER OPERATIONS =================
 
 /**
- * Get or sync user in Firestore
+ * Get or sync user in Firestore (or Supabase if configured)
  */
 export const getFirestoreUser = async (uidOrUsername) => {
   if (!uidOrUsername) return null;
+  if (isSupabaseConfigured) {
+    return getSupabaseUser(uidOrUsername);
+  }
   try {
     if (!db) return null;
     // 1. Try by document ID (Auth UID)
@@ -64,6 +85,9 @@ export const getFirestoreUser = async (uidOrUsername) => {
  */
 export const isUsernameAvailable = async (username, currentUid) => {
   if (!username) return false;
+  if (isSupabaseConfigured) {
+    return isSupabaseUsernameAvailable(username, currentUid);
+  }
   const clean = username.toLowerCase().trim().replace(/[^a-z0-9_]/g, '');
   if (!clean) return false;
   const existingUser = await getFirestoreUser(clean);
@@ -72,10 +96,13 @@ export const isUsernameAvailable = async (username, currentUid) => {
 };
 
 /**
- * Save or update user profile in Firestore
+ * Save or update user profile in Firestore (or Supabase if configured)
  */
 export const saveFirestoreUser = async (uid, userData) => {
   if (!uid) return null;
+  if (isSupabaseConfigured) {
+    return saveSupabaseUser(uid, userData);
+  }
   try {
     if (!db) return userData;
     const userRef = doc(db, USERS_COL, uid);
@@ -132,10 +159,13 @@ export const saveFirestoreUser = async (uid, userData) => {
 };
 
 /**
- * Toggle follow/unfollow in Firestore
+ * Toggle follow/unfollow in Firestore (or Supabase if configured)
  */
 export const toggleFollowFirestore = async (currentUid, targetUidOrUsername) => {
   if (!currentUid || !targetUidOrUsername) return null;
+  if (isSupabaseConfigured) {
+    return toggleFollowSupabase(currentUid, targetUidOrUsername);
+  }
   try {
     if (!db) return null;
     const targetUser = await getFirestoreUser(targetUidOrUsername);
@@ -183,10 +213,13 @@ export const toggleFollowFirestore = async (currentUid, targetUidOrUsername) => 
 };
 
 /**
- * Fetch full profile objects for followers and following of a user from Firestore
+ * Fetch full profile objects for followers and following of a user from Firestore (or Supabase if configured)
  */
 export const getFirestoreFollowLists = async (uidOrUsername) => {
   if (!uidOrUsername) return { followers: [], following: [] };
+  if (isSupabaseConfigured) {
+    return getSupabaseFollowLists(uidOrUsername);
+  }
   try {
     if (!db) {
       try {
@@ -281,18 +314,24 @@ export const invalidateFirestoreRawCache = () => {
 };
 
 /**
- * Fetch posts from Firestore in clusters (pagination) with client-side caching
+ * Fetch posts from Firestore (or Supabase if configured) in clusters (pagination) with client-side caching
  */
-export const getFirestorePosts = async ({
-  filter = 'all',
-  genre = 'All',
-  userId,
-  authorUsername,
-  currentUserId,
-  page = 1,
-  limit = 10,
-  returnCluster = false
-} = {}) => {
+export const getFirestorePosts = async (params = {}) => {
+  if (isSupabaseConfigured) {
+    return getSupabasePosts(params);
+  }
+
+  const {
+    filter = 'all',
+    genre = 'All',
+    userId,
+    authorUsername,
+    currentUserId,
+    page = 1,
+    limit = 10,
+    returnCluster = false
+  } = params;
+
   const pageNum = Math.max(1, parseInt(page) || 1);
   const limitNum = limit === null || limit === undefined ? null : Math.max(1, parseInt(limit) || 10);
 
@@ -490,6 +529,10 @@ export const getFirestorePosts = async ({
  * Get single post from Firestore
  */
 export const getFirestorePostById = async (postId) => {
+  if (isSupabaseConfigured) {
+    return await getSupabasePostById(postId);
+  }
+
   try {
     if (!db) {
       const res = await fetch(`/api/posts/${postId}`);
@@ -517,9 +560,12 @@ export const getFirestorePostById = async (postId) => {
 };
 
 /**
- * Create a new Post in Firestore
+ * Create a new Post in Firestore (or Supabase if configured)
  */
 export const createFirestorePost = async (postData) => {
+  if (isSupabaseConfigured) {
+    return createSupabasePost(postData);
+  }
   try {
     if (!db) throw new Error('Firestore database is not connected');
 
@@ -551,9 +597,12 @@ export const createFirestorePost = async (postData) => {
 };
 
 /**
- * Update an existing Post in Firestore
+ * Update an existing Post in Firestore (or Supabase if configured)
  */
 export const updateFirestorePost = async (postId, updateData) => {
+  if (isSupabaseConfigured) {
+    return updateSupabasePost(postId, updateData);
+  }
   try {
     if (!db) throw new Error('Firestore database is not connected');
 
@@ -584,9 +633,12 @@ export const updateFirestorePost = async (postId, updateData) => {
 };
 
 /**
- * Delete a Post from Firestore
+ * Delete a Post from Firestore (or Supabase if configured)
  */
 export const deleteFirestorePost = async (postId) => {
+  if (isSupabaseConfigured) {
+    return deleteSupabasePost(postId);
+  }
   try {
     if (!db) throw new Error('Firestore database is not connected');
 
@@ -612,9 +664,12 @@ export const deleteFirestorePost = async (postId) => {
 };
 
 /**
- * React to a Post in Firestore
+ * React to a Post in Firestore (or Supabase if configured)
  */
 export const reactToFirestorePost = async (postId, reactionKey, userId) => {
+  if (isSupabaseConfigured) {
+    return reactToSupabasePost(postId, reactionKey, userId);
+  }
   try {
     if (!db) throw new Error('Firestore database is not connected');
 
@@ -663,9 +718,16 @@ export const reactToFirestorePost = async (postId, reactionKey, userId) => {
 };
 
 /**
- * Add Comment to a Post in Firestore and Sync with Backend
+ * Add Comment to a Post in Firestore (or Supabase if configured)
  */
 export const addCommentToFirestorePost = async (postId, commentData) => {
+  if (isSupabaseConfigured) {
+    const userId = commentData.userId || 'listener';
+    return addCommentToSupabasePost(postId, userId, commentData.text, {
+      name: commentData.userName || commentData.authorName,
+      username: commentData.username
+    });
+  }
   try {
     if (!postId) throw new Error('postId is required');
     const userId = commentData.userId || 'listener';
@@ -720,6 +782,10 @@ export const addCommentToFirestorePost = async (postId, commentData) => {
  * Update Comment in a Post in Firestore
  */
 export const updateCommentInFirestorePost = async (postId, commentId, newText, userIdentifier) => {
+  if (isSupabaseConfigured) {
+    return await updateSupabaseComment(commentId, newText, userIdentifier);
+  }
+
   try {
     if (!postId || !commentId) throw new Error('postId and commentId are required');
 
@@ -769,6 +835,10 @@ export const updateCommentInFirestorePost = async (postId, commentId, newText, u
  * Delete Comment from a Post in Firestore
  */
 export const deleteCommentFromFirestorePost = async (postId, commentId, userIdentifier) => {
+  if (isSupabaseConfigured) {
+    return await deleteSupabaseComment(commentId, userIdentifier);
+  }
+
   try {
     if (!postId || !commentId) throw new Error('postId and commentId are required');
 
@@ -809,6 +879,10 @@ export const deleteCommentFromFirestorePost = async (postId, commentId, userIden
  * Unified Discovery Search (Songs, Users, Posts, Tags) with Client-Side Caching & Live Search
  */
 export const searchFirestoreUnified = async ({ query: searchQuery, type = 'all', limit = 25, bypassCache = false } = {}) => {
+  if (isSupabaseConfigured) {
+    return searchSupabaseUnified({ query: searchQuery, type, limit, bypassCache });
+  }
+
   const qStr = (searchQuery || '').trim();
   if (!qStr) {
     return { query: '', type, tracks: [], users: [], posts: [], tags: [] };
