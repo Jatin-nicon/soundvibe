@@ -433,8 +433,8 @@ export const reactToSupabasePost = async (postId, reactionType, userId) => {
   if (!isSupabaseConfigured || !postId || !reactionType || !userId) return null;
 
   try {
-    // 1. Check if reaction already exists
-    const { data: existing } = await supabase
+    // 1. Check if user already has this specific reaction
+    const { data: existingSame } = await supabase
       .from('reactions')
       .select('id')
       .eq('post_id', postId)
@@ -442,9 +442,12 @@ export const reactToSupabasePost = async (postId, reactionType, userId) => {
       .eq('reaction_type', reactionType)
       .maybeSingle();
 
-    if (existing) {
-      await supabase.from('reactions').delete().eq('id', existing.id);
+    if (existingSame) {
+      // User clicked their active reaction -> toggle off / remove
+      await supabase.from('reactions').delete().eq('id', existingSame.id);
     } else {
+      // User switched or added new reaction -> clear any previous reaction on this post, then insert new
+      await supabase.from('reactions').delete().eq('post_id', postId).eq('user_id', userId);
       await supabase.from('reactions').insert({
         post_id: postId,
         user_id: userId,

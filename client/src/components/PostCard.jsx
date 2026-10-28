@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAudioPlayer } from '../context/AudioPlayerContext';
@@ -38,12 +38,46 @@ import {
 import { formatPostDate, formatFullDate } from '../utils/dateUtils';
 
 const REACTION_CONFIG = [
-  { key: 'fire', label: 'Fire', icon: Flame, color: 'text-amber-400', activeBg: 'bg-amber-500/15 border-amber-500/30 text-amber-300' },
-  { key: 'vibe', label: 'Vibe', icon: Waves, color: 'text-sky-400', activeBg: 'bg-sky-500/15 border-sky-500/30 text-sky-300' },
-  { key: 'heart', label: 'Love', icon: Heart, color: 'text-rose-400', activeBg: 'bg-rose-500/15 border-rose-500/30 text-rose-300' },
-  { key: 'repeat', label: 'Loop', icon: Repeat, color: 'text-indigo-400', activeBg: 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300' },
-  { key: 'mindblown', label: 'Electric', icon: Zap, color: 'text-emerald-400', activeBg: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' },
-  { key: 'overrated', label: 'Skip', icon: ThumbsDown, color: 'text-slate-400', activeBg: 'bg-slate-500/20 border-slate-500/30 text-slate-200' }
+  { 
+    key: 'heart', 
+    label: 'Love', 
+    icon: Heart, 
+    activeColor: 'text-rose-500', 
+    activeFill: 'fill-rose-500', 
+    activeBg: 'bg-rose-500/15 border-rose-500/30 text-rose-300' 
+  },
+  { 
+    key: 'fire', 
+    label: 'Fire', 
+    icon: Flame, 
+    activeColor: 'text-amber-500', 
+    activeFill: 'fill-amber-500', 
+    activeBg: 'bg-amber-500/15 border-amber-500/30 text-amber-300' 
+  },
+  { 
+    key: 'vibe', 
+    label: 'Vibe', 
+    icon: Waves, 
+    activeColor: 'text-sky-400', 
+    activeFill: 'fill-sky-400', 
+    activeBg: 'bg-sky-500/15 border-sky-500/30 text-sky-300' 
+  },
+  { 
+    key: 'repeat', 
+    label: 'On Loop', 
+    icon: Repeat, 
+    activeColor: 'text-indigo-400', 
+    activeFill: '', 
+    activeBg: 'bg-indigo-500/15 border-indigo-500/30 text-indigo-300' 
+  },
+  { 
+    key: 'mindblown', 
+    label: 'Electric', 
+    icon: Zap, 
+    activeColor: 'text-emerald-400', 
+    activeFill: 'fill-emerald-400', 
+    activeBg: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' 
+  }
 ];
 
 export const PostCard = ({ 
@@ -69,6 +103,10 @@ export const PostCard = ({
   const [loadingComments, setLoadingComments] = useState(false);
   const [submittingComment, setSubmittingComment] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [showReactionDock, setShowReactionDock] = useState(false);
+  const hoverTimeoutRef = useRef(null);
+  const touchTimeoutRef = useRef(null);
+  const isTouchLongPress = useRef(false);
 
   // Edit & Delete Comment State
   const [editingCommentId, setEditingCommentId] = useState(null);
@@ -86,6 +124,13 @@ export const PostCard = ({
       setShowComments(true);
     }
   }, [post, defaultShowComments]);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+      if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
+    };
+  }, []);
 
   const isThisTrackPlaying = currentTrack?.id === post?.track?.id && isPlaying;
   const author = post.author || { id: post.userId, name: 'Music Explorer', avatar: `https://api.dicebear.com/7.x/bottts/svg?seed=${post.userId}` };
@@ -117,19 +162,90 @@ export const PostCard = ({
     }
   };
 
+  // Active reaction computation
+  const activeUserId = user?.id || user?.uid || user?.username || 'guest_listener';
+  const userActiveReactionKey = Object.keys(reactions).find(key => 
+    Array.isArray(reactions[key]) && reactions[key].includes(activeUserId)
+  );
+  const activeReactionConfig = REACTION_CONFIG.find(r => r.key === userActiveReactionKey);
+  const ActiveTriggerIcon = activeReactionConfig ? activeReactionConfig.icon : Heart;
+
+  const totalReactionCount = Object.values(reactions).reduce(
+    (acc, curr) => acc + (Array.isArray(curr) ? curr.length : 0), 0
+  );
+
+  const topReactionIcons = REACTION_CONFIG.filter(
+    r => Array.isArray(reactions[r.key]) && reactions[r.key].length > 0
+  ).slice(0, 3);
+
+  // Desktop Hover Handlers
+  const handleTriggerMouseEnter = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    hoverTimeoutRef.current = setTimeout(() => {
+      setShowReactionDock(true);
+    }, 200);
+  };
+
+  const handleTriggerMouseLeave = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    hoverTimeoutRef.current = setTimeout(() => {
+      setShowReactionDock(false);
+    }, 280);
+  };
+
+  const handleDockMouseEnter = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+  };
+
+  const handleDockMouseLeave = () => {
+    if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    hoverTimeoutRef.current = setTimeout(() => {
+      setShowReactionDock(false);
+    }, 280);
+  };
+
+  // Mobile Long-Press Handlers
+  const handleTouchStart = () => {
+    isTouchLongPress.current = false;
+    touchTimeoutRef.current = setTimeout(() => {
+      isTouchLongPress.current = true;
+      setShowReactionDock(true);
+    }, 380);
+  };
+
+  const handleTouchEnd = () => {
+    if (touchTimeoutRef.current) clearTimeout(touchTimeoutRef.current);
+  };
+
+  const handleQuickReaction = () => {
+    if (isTouchLongPress.current) {
+      isTouchLongPress.current = false;
+      return;
+    }
+    const targetKey = userActiveReactionKey || 'heart';
+    handleReaction(targetKey);
+    setShowReactionDock(false);
+  };
+
+  const handleSelectReaction = (key) => {
+    handleReaction(key);
+    setShowReactionDock(false);
+  };
+
   const handleReaction = async (reactionKey) => {
     const activeUserId = user?.id || user?.uid || user?.username || 'guest_listener';
 
-    // Optimistic UI update
+    // Optimistic UI update: switch to reactionKey or toggle off if same
     setReactions(prev => {
-      const currentList = Array.isArray(prev[reactionKey]) ? prev[reactionKey] : [];
-      const hasReacted = currentList.includes(activeUserId);
-      return {
-        ...prev,
-        [reactionKey]: hasReacted
-          ? currentList.filter(id => id !== activeUserId)
-          : [...currentList, activeUserId]
-      };
+      const alreadyHasThis = (prev[reactionKey] || []).includes(activeUserId);
+      const next = {};
+      Object.keys(prev).forEach(k => {
+        next[k] = (prev[k] || []).filter(id => id !== activeUserId);
+      });
+      if (!alreadyHasThis) {
+        next[reactionKey] = [...(next[reactionKey] || []), activeUserId];
+      }
+      return next;
     });
 
     try {
@@ -492,47 +608,111 @@ export const PostCard = ({
         )}
       </div>
 
-      {/* Reaction Bar & Comments Trigger */}
-      <div className="pt-2.5 sm:pt-3 border-t border-white/5 flex flex-wrap items-center justify-between gap-2">
-        {/* Sleek Vector Reactions */}
-        <div className="flex flex-wrap items-center gap-1 sm:gap-1.5">
-          {REACTION_CONFIG.map(({ key, label, icon: Icon, color, activeBg }) => {
-            const userList = Array.isArray(reactions[key]) ? reactions[key] : [];
-            const count = userList.length;
-            const activeUserId = user?.id || user?.uid || user?.username;
-            const hasReacted = activeUserId ? userList.includes(activeUserId) : false;
+      {/* Reaction Bar & Comments & Share Actions */}
+      <div className="pt-2.5 sm:pt-3 border-t border-white/5 flex items-center justify-between gap-2">
+        {/* Left: Reaction Trigger with Floating Dock (Facebook/LinkedIn style) */}
+        <div 
+          className="relative"
+          onMouseEnter={handleTriggerMouseEnter}
+          onMouseLeave={handleTriggerMouseLeave}
+        >
+          {/* Floating Reaction Dock */}
+          {showReactionDock && (
+            <div 
+              onMouseEnter={handleDockMouseEnter}
+              onMouseLeave={handleDockMouseLeave}
+              className="absolute bottom-full left-0 mb-2 z-40 bg-dark-900/95 backdrop-blur-2xl border border-white/10 rounded-full px-2 sm:px-3 py-1.5 shadow-2xl flex items-center gap-1 sm:gap-2 animate-in fade-in zoom-in-95 duration-150"
+            >
+              {REACTION_CONFIG.map(({ key, label, icon: Icon, activeColor, activeFill }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSelectReaction(key);
+                  }}
+                  className="group relative p-1.5 sm:p-2 rounded-full hover:bg-white/10 transition-all active:scale-90"
+                  title={label}
+                >
+                  {/* Tooltip on hover */}
+                  <span className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md bg-dark-950 border border-white/10 text-[10px] font-bold text-white whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-lg">
+                    {label}
+                  </span>
+                  <Icon className={`w-5 h-5 sm:w-5.5 sm:h-5.5 transition-transform duration-150 group-hover:scale-125 ${
+                    userActiveReactionKey === key
+                      ? `${activeColor} ${activeFill} scale-110`
+                      : 'text-slate-400 group-hover:' + activeColor
+                  }`} />
+                </button>
+              ))}
+            </div>
+          )}
 
-            return (
-              <button
-                key={key}
-                onClick={() => handleReaction(key)}
-                className={`flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl text-xs font-semibold transition-all group active:scale-95 ${
-                  hasReacted
-                    ? `${activeBg} border shadow-sm scale-105`
-                    : count > 0
-                    ? 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/5'
-                    : 'bg-transparent text-slate-400 hover:bg-white/5 hover:text-slate-200'
-                }`}
-                title={label}
-              >
-                <Icon className={`w-3.5 h-3.5 transition-transform group-hover:scale-110 ${hasReacted ? color : 'text-slate-400 group-hover:' + color} ${hasReacted ? 'fill-current' : ''}`} />
-                <span className="text-[11px] font-medium">{label}</span>
-                {count > 0 && <span className="font-mono text-[10px] opacity-80 font-bold">({count})</span>}
-              </button>
-            );
-          })}
+          {/* Main Reaction Button */}
+          <button
+            type="button"
+            onClick={handleQuickReaction}
+            onTouchStart={handleTouchStart}
+            onTouchEnd={handleTouchEnd}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-semibold transition-all group active:scale-95 ${
+              activeReactionConfig
+                ? `${activeReactionConfig.activeBg} border shadow-sm`
+                : 'bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-transparent hover:border-white/5'
+            }`}
+            title={activeReactionConfig ? `Reacted: ${activeReactionConfig.label}` : 'React (Hover/Hold for vibes)'}
+          >
+            <ActiveTriggerIcon className={`w-4 h-4 transition-transform group-hover:scale-110 ${
+              activeReactionConfig
+                ? `${activeReactionConfig.activeColor} ${activeReactionConfig.activeFill}`
+                : 'text-slate-400 group-hover:text-rose-400'
+            }`} />
+
+            {/* Overlapping mini reaction SVGs if multiple types present */}
+            {topReactionIcons.length > 0 && (
+              <span className="flex items-center -space-x-1 ml-0.5">
+                {topReactionIcons.map((r) => (
+                  <span key={r.key} className={`w-3.5 h-3.5 rounded-full bg-dark-900 border border-dark-950 flex items-center justify-center ${r.activeColor}`}>
+                    <r.icon className={`w-2.5 h-2.5 ${r.activeFill || 'fill-current'}`} />
+                  </span>
+                ))}
+              </span>
+            )}
+
+            {totalReactionCount > 0 && (
+              <span className="font-mono text-xs font-bold ml-0.5">
+                {totalReactionCount}
+              </span>
+            )}
+          </button>
         </div>
 
-        {/* Comment Drawer Button */}
-        <button
-          onClick={toggleCommentsDrawer}
-          className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-xl text-xs font-medium transition-colors ${
-            showComments ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'
-          }`}
-        >
-          <MessageCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          <span>{commentsCount} {commentsCount === 1 ? 'Thought' : 'Thoughts'}</span>
-        </button>
+        {/* Right: Comments Button & Share Button (Outside) */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Comment Drawer Button */}
+          <button
+            type="button"
+            onClick={toggleCommentsDrawer}
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-medium transition-colors active:scale-95 ${
+              showComments ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'
+            }`}
+            title="Discussion"
+          >
+            <MessageCircle className="w-4 h-4" />
+            {commentsCount > 0 && (
+              <span className="font-mono text-xs font-semibold">{commentsCount}</span>
+            )}
+          </button>
+
+          {/* Share Button */}
+          <button
+            type="button"
+            onClick={handleShare}
+            className="p-1.5 sm:p-2 text-slate-400 hover:text-white rounded-full hover:bg-white/5 transition-colors active:scale-95"
+            title="Share post"
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Copied link toast */}
