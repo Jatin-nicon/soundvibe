@@ -10,7 +10,8 @@ import {
   Sparkles, 
   PlusCircle, 
   Disc3, 
-  RefreshCw 
+  RefreshCw,
+  Heart 
 } from 'lucide-react';
 
 const GENRE_FILTERS = [
@@ -40,7 +41,7 @@ export const FeedPage = () => {
   const fetchPosts = async (pageToFetch = 1, isLoadMore = false) => {
     if (isLoadMore) {
       setLoadingMore(true);
-    } else {
+    } else if (posts.length === 0) {
       setLoading(true);
     }
     try {
@@ -77,9 +78,10 @@ export const FeedPage = () => {
     }
   };
 
+  const userId = user?.id || user?.uid;
   useEffect(() => {
     fetchPosts(1, false);
-  }, [activeSort, activeGenre, user]);
+  }, [activeSort, activeGenre, userId]);
 
   const handleRefresh = () => {
     cacheService.invalidateFeed();
@@ -188,6 +190,20 @@ export const FeedPage = () => {
               <Star className="w-3.5 h-3.5" />
               <span>Top Rated</span>
             </button>
+
+            {user && (
+              <button
+                onClick={() => handleSortChange('liked')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+                  activeSort === 'liked'
+                    ? 'bg-brand-blue text-white shadow-md'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Heart className="w-3.5 h-3.5 text-rose-400 fill-rose-400/20" />
+                <span>Liked</span>
+              </button>
+            )}
           </div>
 
           <button

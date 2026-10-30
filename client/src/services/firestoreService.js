@@ -17,6 +17,7 @@ import {
   updateSupabasePost, 
   deleteSupabasePost, 
   reactToSupabasePost, 
+  getSupabaseUserReactedPosts,
   addCommentToSupabasePost, 
   updateSupabaseComment,
   deleteSupabaseComment,
@@ -80,6 +81,10 @@ export const deleteFirestorePost = async (postId, currentUserId) => {
 
 export const reactToFirestorePost = async (postId, reactionKey, userId) => {
   return reactToSupabasePost(postId, reactionKey, userId);
+};
+
+export const getFirestoreUserReactedPosts = async (uidOrUsername) => {
+  return getSupabaseUserReactedPosts(uidOrUsername);
 };
 
 export const addCommentToFirestorePost = async (postId, commentData) => {

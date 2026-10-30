@@ -608,9 +608,9 @@ export const PostCard = ({
         )}
       </div>
 
-      {/* Reaction Bar & Comments & Share Actions */}
-      <div className="pt-2.5 sm:pt-3 border-t border-white/5 flex items-center justify-between gap-2">
-        {/* Left: Reaction Trigger with Floating Dock (Facebook/LinkedIn style) */}
+      {/* Action Bar (Reactions, Comments, and Share all grouped on the Left) */}
+      <div className="pt-2.5 sm:pt-3 border-t border-white/5 flex items-center justify-start gap-1.5 sm:gap-2.5">
+        {/* Reaction Trigger with Floating Dock (Facebook/LinkedIn style) */}
         <div 
           className="relative"
           onMouseEnter={handleTriggerMouseEnter}
@@ -686,33 +686,30 @@ export const PostCard = ({
           </button>
         </div>
 
-        {/* Right: Comments Button & Share Button (Outside) */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Comment Drawer Button */}
-          <button
-            type="button"
-            onClick={toggleCommentsDrawer}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-medium transition-colors active:scale-95 ${
-              showComments ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'
-            }`}
-            title="Discussion"
-          >
-            <MessageCircle className="w-4 h-4" />
-            {commentsCount > 0 && (
-              <span className="font-mono text-xs font-semibold">{commentsCount}</span>
-            )}
-          </button>
+        {/* Comment Drawer Button */}
+        <button
+          type="button"
+          onClick={toggleCommentsDrawer}
+          className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-medium transition-colors active:scale-95 ${
+            showComments ? 'bg-white/10 text-white' : 'text-slate-400 hover:text-white hover:bg-white/5'
+          }`}
+          title="Discussion"
+        >
+          <MessageCircle className="w-4 h-4" />
+          {commentsCount > 0 && (
+            <span className="font-mono text-xs font-semibold">{commentsCount}</span>
+          )}
+        </button>
 
-          {/* Share Button */}
-          <button
-            type="button"
-            onClick={handleShare}
-            className="p-1.5 sm:p-2 text-slate-400 hover:text-white rounded-full hover:bg-white/5 transition-colors active:scale-95"
-            title="Share post"
-          >
-            <Share2 className="w-4 h-4" />
-          </button>
-        </div>
+        {/* Share Button */}
+        <button
+          type="button"
+          onClick={handleShare}
+          className="p-1.5 sm:px-2.5 sm:py-1.5 text-slate-400 hover:text-white rounded-full hover:bg-white/5 transition-colors active:scale-95 flex items-center gap-1"
+          title="Share post"
+        >
+          <Share2 className="w-4 h-4" />
+        </button>
       </div>
 
       {/* Copied link toast */}

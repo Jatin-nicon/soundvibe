@@ -69,44 +69,38 @@ export const getSupabaseUser = async (uidOrUsername) => {
       .eq('id', clean)
       .maybeSingle();
 
-    if (byId) {
-      return {
-        id: byId.id,
-        uid: byId.id,
-        name: byId.name,
-        username: byId.username,
-        email: byId.email,
-        avatar: byId.avatar,
-        bio: byId.bio,
-        favoriteGenres: byId.favorite_genres || ['Indie Rock', 'Electronic'],
-        badges: byId.badges || ['Curator'],
-        createdAt: byId.created_at
-      };
-    }
-
     // 2. Try by username
-    const { data: byUser } = await supabase
+    const profile = byId || (await supabase
       .from('profiles')
       .select('*')
       .ilike('username', clean)
-      .maybeSingle();
+      .maybeSingle()).data;
 
-    if (byUser) {
-      return {
-        id: byUser.id,
-        uid: byUser.id,
-        name: byUser.name,
-        username: byUser.username,
-        email: byUser.email,
-        avatar: byUser.avatar,
-        bio: byUser.bio,
-        favoriteGenres: byUser.favorite_genres || ['Indie Rock', 'Electronic'],
-        badges: byUser.badges || ['Curator'],
-        createdAt: byUser.created_at
-      };
-    }
+    if (!profile) return null;
 
-    return null;
+    // 3. Hydrate relational follows (followers & following arrays)
+    const [followingRes, followersRes] = await Promise.all([
+      supabase.from('follows').select('following_id').eq('follower_id', profile.id),
+      supabase.from('follows').select('follower_id').eq('following_id', profile.id)
+    ]);
+
+    const followingIds = (followingRes.data || []).map(r => r.following_id);
+    const followerIds = (followersRes.data || []).map(r => r.follower_id);
+
+    return {
+      id: profile.id,
+      uid: profile.id,
+      name: profile.name,
+      username: profile.username,
+      email: profile.email,
+      avatar: profile.avatar,
+      bio: profile.bio,
+      favoriteGenres: profile.favorite_genres || ['Indie Rock', 'Electronic'],
+      badges: profile.badges || ['Curator'],
+      followers: followerIds,
+      following: followingIds,
+      createdAt: profile.created_at
+    };
   } catch (err) {
     console.error('Error in getSupabaseUser:', err);
     return null;
@@ -231,6 +225,23 @@ export const getSupabasePosts = async ({
         return returnCluster ? { posts: [], hasMore: false, total: 0, page: pageNum, limit: limitNum, totalPages: 0 } : [];
       }
       query = query.in('user_id', followingIds);
+    }
+
+    // Filter by Liked / Reacted
+    if (filter === 'liked' || filter === 'reacted') {
+      if (!currentUserId) return returnCluster ? { posts: [], hasMore: false, total: 0, page: pageNum, limit: limitNum, totalPages: 0 } : [];
+      const { data: reactRows } = await supabase
+        .from('reactions')
+        .select('post_id, created_at')
+        .eq('user_id', currentUserId)
+        .order('created_at', { ascending: false });
+
+      const postIds = (reactRows || []).map(r => r.post_id);
+      const uniquePostIds = [...new Set(postIds)];
+      if (uniquePostIds.length === 0) {
+        return returnCluster ? { posts: [], hasMore: false, total: 0, page: pageNum, limit: limitNum, totalPages: 0 } : [];
+      }
+      query = query.in('id', uniquePostIds);
     }
 
     // Filter by Genre
@@ -472,6 +483,72 @@ export const reactToSupabasePost = async (postId, reactionType, userId) => {
   } catch (err) {
     console.error('Error toggling reaction in Supabase:', err);
     return null;
+  }
+};
+
+export const getSupabaseUserReactedPosts = async (uidOrUsername) => {
+  if (!isSupabaseConfigured || !uidOrUsername) return [];
+  try {
+    let targetUid = uidOrUsername;
+    // Resolve username to permanent UID if needed
+    const userProfile = await getSupabaseUser(uidOrUsername);
+    if (userProfile && userProfile.id) {
+      targetUid = userProfile.id;
+    }
+
+    // 1. Fetch user reactions ordered by newest reaction first
+    const { data: reactRows, error: reactErr } = await supabase
+      .from('reactions')
+      .select('post_id, reaction_type, created_at')
+      .eq('user_id', targetUid)
+      .order('created_at', { ascending: false });
+
+    if (reactErr) throw reactErr;
+    if (!reactRows || reactRows.length === 0) return [];
+
+    // Map each post_id to the user's reaction for fast lookup
+    const userReactionByPostId = new Map();
+    reactRows.forEach(r => {
+      if (!userReactionByPostId.has(r.post_id)) {
+        userReactionByPostId.set(r.post_id, r.reaction_type);
+      }
+    });
+
+    const uniquePostIds = Array.from(userReactionByPostId.keys());
+
+    // 2. Fetch full post details
+    const { data: postsData, error: postsErr } = await supabase
+      .from('posts')
+      .select(`
+        *,
+        profiles:user_id (id, username, name, avatar, badges),
+        reactions (reaction_type, user_id),
+        comments (id, text, user_id, created_at, profiles:user_id (id, username, name, avatar))
+      `)
+      .in('id', uniquePostIds);
+
+    if (postsErr) throw postsErr;
+
+    const formattedPosts = (postsData || []).map(row => {
+      const formatted = formatPostRow(row);
+      formatted.currentUserReaction = userReactionByPostId.get(formatted.id);
+      return formatted;
+    });
+
+    // 3. Preserve the reaction recency order (newest reaction first)
+    const postOrderMap = new Map();
+    uniquePostIds.forEach((id, idx) => postOrderMap.set(id, idx));
+
+    formattedPosts.sort((a, b) => {
+      const orderA = postOrderMap.has(a.id) ? postOrderMap.get(a.id) : 9999;
+      const orderB = postOrderMap.has(b.id) ? postOrderMap.get(b.id) : 9999;
+      return orderA - orderB;
+    });
+
+    return formattedPosts;
+  } catch (err) {
+    console.error('Error in getSupabaseUserReactedPosts:', err);
+    return [];
   }
 };
 

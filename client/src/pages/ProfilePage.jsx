@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAudioPlayer } from '../context/AudioPlayerContext';
 import { PostCard } from '../components/PostCard';
@@ -17,21 +17,57 @@ import {
   Pause,
   Award,
   Users,
-  LogIn
+  LogIn,
+  Heart,
+  Waves,
+  Repeat,
+  Zap
 } from 'lucide-react';
 
-import { getFirestoreUser, getFirestorePosts } from '../services/firestoreService';
+const REACTION_BADGES = {
+  heart: { label: 'Love', icon: Heart, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
+  fire: { label: 'Fire', icon: Flame, color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
+  vibe: { label: 'Vibe', icon: Waves, color: 'text-brand-blue bg-brand-blue/10 border-brand-blue/20' },
+  repeat: { label: 'On Loop', icon: Repeat, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
+  mindblown: { label: 'Electric', icon: Zap, color: 'text-purple-400 bg-purple-500/10 border-purple-500/20' }
+};
+
+import { getFirestoreUser, getFirestorePosts, getFirestoreUserReactedPosts } from '../services/firestoreService';
 
 export const ProfilePage = () => {
   const { username } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user: currentUser, toggleFollowUser, setAuthModalOpen } = useAuth();
   const { currentTrack, isPlaying, playTrack } = useAudioPlayer();
 
   const [profileData, setProfileData] = useState(null);
+  const [reactedPosts, setReactedPosts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') === 'liked' ? 'liked' : 'vibes');
   const [followModalOpen, setFollowModalOpen] = useState(false);
   const [followModalTab, setFollowModalTab] = useState('followers');
+
+  // Sync activeTab when URL query parameter changes
+  useEffect(() => {
+    const tabFromUrl = searchParams.get('tab');
+    if (tabFromUrl === 'liked') {
+      setActiveTab('liked');
+    } else {
+      setActiveTab('vibes');
+    }
+  }, [searchParams]);
+
+  const handleTabChange = (newTab) => {
+    setActiveTab(newTab);
+    const nextParams = new URLSearchParams(searchParams);
+    if (newTab === 'liked') {
+      nextParams.set('tab', 'liked');
+    } else {
+      nextParams.delete('tab');
+    }
+    setSearchParams(nextParams, { replace: true });
+  };
 
   // If param is 'me' or missing, look up currentUser
   const targetHandle = (username === 'me' || !username) ? (currentUser?.username || currentUser?.id) : username;
@@ -40,13 +76,16 @@ export const ProfilePage = () => {
     currentUser.id === targetHandle ||
     targetHandle === 'me'
   );
+  const currentUserId = currentUser?.id || currentUser?.uid;
 
-  const fetchProfile = async () => {
+  const fetchProfile = async (showLoadingSpinner = false) => {
     if (!targetHandle) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (showLoadingSpinner || !profileData) {
+      setLoading(true);
+    }
     try {
       // 1. Fetch user from Firestore
       let userObj = await getFirestoreUser(targetHandle);
@@ -54,13 +93,22 @@ export const ProfilePage = () => {
         userObj = currentUser;
       }
 
-      const uidToQuery = userObj?.id || userObj?.uid || (isOwnProfile ? currentUser?.id : targetHandle);
+      const uidToQuery = userObj?.id || userObj?.uid || (isOwnProfile ? currentUserId : targetHandle);
       
       // 2. Fetch user posts from Firestore (linked permanently to UID and username)
       const userPosts = await getFirestorePosts({
         userId: uidToQuery,
         authorUsername: userObj?.username || targetHandle
       });
+
+      // 3. Fetch user reacted posts from Supabase
+      try {
+        const reacted = await getFirestoreUserReactedPosts(uidToQuery);
+        setReactedPosts(Array.isArray(reacted) ? reacted : []);
+      } catch (e) {
+        console.warn('Notice fetching user reacted posts:', e);
+        setReactedPosts([]);
+      }
 
       const followingList = currentUser?.following || [];
       const isFollowing = followingList.includes(targetHandle) || (userObj?.id && followingList.includes(userObj.id));
@@ -87,8 +135,8 @@ export const ProfilePage = () => {
   };
 
   useEffect(() => {
-    fetchProfile();
-  }, [targetHandle, currentUser]);
+    fetchProfile(!profileData);
+  }, [targetHandle, currentUserId]);
 
   const handleFollow = async () => {
     if (!currentUser) {
@@ -96,8 +144,24 @@ export const ProfilePage = () => {
       return;
     }
     try {
-      await toggleFollowUser(targetHandle);
-      fetchProfile();
+      const res = await toggleFollowUser(targetHandle);
+      if (res) {
+        setProfileData(prev => {
+          if (!prev) return prev;
+          const prevFollowers = prev.user?.followers || [];
+          const updatedFollowers = res.isFollowing
+            ? [...prevFollowers.filter(id => id !== currentUserId), currentUserId]
+            : prevFollowers.filter(id => id !== currentUserId);
+          return {
+            ...prev,
+            isFollowing: res.isFollowing,
+            user: {
+              ...prev.user,
+              followers: updatedFollowers
+            }
+          };
+        });
+      }
     } catch (e) {
       console.error(e);
     }
@@ -247,10 +311,30 @@ export const ProfilePage = () => {
         {/* Stats & Genres strip */}
         <div className="mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-white/5 flex flex-wrap items-center justify-between gap-3 sm:gap-4">
           <div className="flex items-center gap-4 sm:gap-6 text-center">
-            <div>
-              <p className="text-base sm:text-lg font-bold text-white font-mono">{posts.length}</p>
-              <p className="text-[9px] sm:text-[10px] text-slate-400 uppercase tracking-wider">Vibe Drops</p>
-            </div>
+            <button
+              type="button"
+              onClick={() => handleTabChange('vibes')}
+              className="text-center group cursor-pointer focus:outline-none p-1 rounded-xl hover:bg-white/5 transition-all"
+            >
+              <p className={`text-base sm:text-lg font-bold font-mono transition-colors ${activeTab === 'vibes' ? 'text-brand-blue' : 'text-white group-hover:text-brand-blue'}`}>
+                {posts.length}
+              </p>
+              <p className="text-[9px] sm:text-[10px] text-slate-400 group-hover:text-white uppercase tracking-wider underline-offset-4 group-hover:underline">
+                Vibe Drops
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleTabChange('liked')}
+              className="text-center group cursor-pointer focus:outline-none p-1 rounded-xl hover:bg-white/5 transition-all"
+            >
+              <p className={`text-base sm:text-lg font-bold font-mono transition-colors ${activeTab === 'liked' ? 'text-rose-400' : 'text-white group-hover:text-rose-400'}`}>
+                {reactedPosts.length}
+              </p>
+              <p className="text-[9px] sm:text-[10px] text-slate-400 group-hover:text-white uppercase tracking-wider underline-offset-4 group-hover:underline">
+                Liked Vibes
+              </p>
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -343,16 +427,38 @@ export const ProfilePage = () => {
         </div>
       </div>
 
-      {/* User's Vibe Drops */}
-      <div className="space-y-3 sm:space-y-4 pt-2 sm:pt-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Flame className="w-4 h-4 text-amber-400" />
-            <h2 className="text-sm sm:text-base font-bold font-display text-white">
-              Vibes Dropped by {user.name} ({posts.length})
-            </h2>
+      {/* Activity Section: Vibes Dropped vs Liked & Reacted */}
+      <div className="space-y-4 pt-2 sm:pt-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+          <div className="flex items-center gap-1.5 p-1 bg-dark-900/90 rounded-2xl border border-white/5 w-fit">
+            <button
+              type="button"
+              onClick={() => handleTabChange('vibes')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                activeTab === 'vibes'
+                  ? 'bg-brand-blue text-white shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Flame className="w-3.5 h-3.5 text-amber-400" />
+              <span>Vibes Dropped ({posts.length})</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleTabChange('liked')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-bold transition-all ${
+                activeTab === 'liked'
+                  ? 'bg-brand-blue text-white shadow-md'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <Heart className="w-3.5 h-3.5 text-rose-400 fill-rose-400/20" />
+              <span>Liked & Reacted ({reactedPosts.length})</span>
+            </button>
           </div>
-          {isOwnProfile && (
+
+          {isOwnProfile && activeTab === 'vibes' && (
             <button
               onClick={() => navigate('/drop-vibe')}
               className="text-xs font-bold text-brand-blue hover:underline transition-colors"
@@ -362,37 +468,92 @@ export const ProfilePage = () => {
           )}
         </div>
 
-        {posts.length === 0 ? (
-          <div className="p-10 rounded-2xl bg-dark-900/60 border border-white/5 text-center space-y-2">
-            <p className="text-sm font-semibold text-white">No vibes dropped yet</p>
-            <p className="text-xs text-slate-400">
-              When {user.name} reviews tracks, their posts will appear here.
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-6">
-            {posts.map((post) => (
-              <PostCard
-                key={post.id}
-                post={post}
-                onTagClick={(tag) => navigate(`/?genre=${encodeURIComponent(tag.replace('#', ''))}`)}
-                onAuthorClick={(uid) => navigate(`/profile/${post.author?.username || post.userId}`)}
-                onOpenEditProfile={() => navigate('/settings')}
-                onPostUpdated={(updated) => {
-                  setProfileData(prev => prev ? {
-                    ...prev,
-                    posts: (prev.posts || []).map(p => p.id === updated.id ? updated : p)
-                  } : prev);
-                }}
-                onPostDeleted={(deletedId) => {
-                  setProfileData(prev => prev ? {
-                    ...prev,
-                    posts: (prev.posts || []).filter(p => p.id !== deletedId)
-                  } : prev);
-                }}
-              />
-            ))}
-          </div>
+        {activeTab === 'vibes' && (
+          posts.length === 0 ? (
+            <div className="p-10 rounded-2xl bg-dark-900/60 border border-white/5 text-center space-y-2">
+              <p className="text-sm font-semibold text-white">No vibes dropped yet</p>
+              <p className="text-xs text-slate-400">
+                When {user.name} reviews tracks, their posts will appear here.
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-6">
+              {posts.map((post) => (
+                <PostCard
+                  key={post.id}
+                  post={post}
+                  onTagClick={(tag) => navigate(`/?genre=${encodeURIComponent(tag.replace('#', ''))}`)}
+                  onAuthorClick={(uid) => navigate(`/profile/${post.author?.username || post.userId}`)}
+                  onOpenEditProfile={() => navigate('/settings')}
+                  onPostUpdated={(updated) => {
+                    setProfileData(prev => prev ? {
+                      ...prev,
+                      posts: (prev.posts || []).map(p => p.id === updated.id ? updated : p)
+                    } : prev);
+                  }}
+                  onPostDeleted={(deletedId) => {
+                    setProfileData(prev => prev ? {
+                      ...prev,
+                      posts: (prev.posts || []).filter(p => p.id !== deletedId)
+                    } : prev);
+                  }}
+                />
+              ))}
+            </div>
+          )
+        )}
+
+        {activeTab === 'liked' && (
+          reactedPosts.length === 0 ? (
+            <div className="p-10 rounded-2xl bg-dark-900/60 border border-white/5 text-center space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
+                <Heart className="w-6 h-6" />
+              </div>
+              <p className="text-sm font-semibold text-white">No reacted vibes yet</p>
+              <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                {isOwnProfile 
+                  ? 'When you react with Love, Fire, Vibe, Loop, or Electric on posts, they will be saved here in your personal collection.'
+                  : `${user.name} hasn't reacted to any vibe drops yet.`}
+              </p>
+              {isOwnProfile && (
+                <button
+                  onClick={() => navigate('/')}
+                  className="px-4 py-2 rounded-xl bg-brand-blue/20 hover:bg-brand-blue/30 text-brand-blue text-xs font-bold transition-all border border-brand-blue/30"
+                >
+                  Explore Feed to React
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid gap-6">
+              {reactedPosts.map((post) => {
+                const reactionBadge = post.currentUserReaction ? REACTION_BADGES[post.currentUserReaction] : null;
+                const BadgeIcon = reactionBadge?.icon;
+                return (
+                  <div key={post.id} className="space-y-1.5">
+                    {reactionBadge && (
+                      <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] font-semibold ${reactionBadge.color} shadow-sm backdrop-blur-md`}>
+                        <BadgeIcon className="w-3.5 h-3.5 fill-current" />
+                        <span>{isOwnProfile ? 'You reacted with' : `${user.name} reacted with`} {reactionBadge.label}</span>
+                      </div>
+                    )}
+                    <PostCard
+                      post={post}
+                      onTagClick={(tag) => navigate(`/?genre=${encodeURIComponent(tag.replace('#', ''))}`)}
+                      onAuthorClick={(uid) => navigate(`/profile/${post.author?.username || post.userId}`)}
+                      onOpenEditProfile={() => navigate('/settings')}
+                      onPostUpdated={(updated) => {
+                        setReactedPosts(prev => prev.map(p => p.id === updated.id ? updated : p));
+                      }}
+                      onPostDeleted={(deletedId) => {
+                        setReactedPosts(prev => prev.filter(p => p.id !== deletedId));
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )
         )}
       </div>
 
@@ -401,7 +562,7 @@ export const ProfilePage = () => {
         isOpen={followModalOpen}
         onClose={() => {
           setFollowModalOpen(false);
-          fetchProfile();
+          fetchProfile(false);
         }}
         userId={user.id || user.username}
         userName={user.name}

@@ -16,6 +16,7 @@ import {
   Plus,
   Music,
   ArrowRight,
+  Heart,
   X
 } from 'lucide-react';
 import { searchFirestoreUnified } from '../services/firestoreService';
@@ -345,6 +346,15 @@ export const Navbar = () => {
                       >
                         <User className="w-3.5 h-3.5 text-brand-blue" />
                         <span>Your Profile</span>
+                      </Link>
+
+                      <Link
+                        to={`/profile/${user.username || user.id}?tab=liked`}
+                        onClick={() => setDropdownOpen(false)}
+                        className="flex items-center gap-2.5 px-4 py-2 text-xs text-slate-200 hover:text-white hover:bg-white/10 transition-colors"
+                      >
+                        <Heart className="w-3.5 h-3.5 text-rose-400" />
+                        <span>Liked Vibes</span>
                       </Link>
 
                       <Link
